@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libmysqlclient-dev \
       libsqlite3-0 \
       libxml2 \
+	  unzip \
     && apt-get clean \
     && rm -r /var/lib/apt/lists/*
 
@@ -42,6 +43,14 @@ RUN OPENSSL_VERSION="1.0.2k" \
 
 ENV PHP_VERSION 5.3.29
 
+
+
+
+
+RUN mkdir -p /usr/src/php
+
+COPY php-5.3.29.tar.xz /usr/src/php
+
 # php 5.3 needs older autoconf
 # --enable-mysqlnd is included below because it's harder to compile after the fact the extensions are (since it's a plugin for several extensions, not an extension in itself)
 RUN buildDeps=" \
@@ -56,11 +65,11 @@ RUN buildDeps=" \
       " \
       && set -x \
       && apt-get update && apt-get install -y $buildDeps --no-install-recommends && rm -rf /var/lib/apt/lists/* \
-      && curl -SL "http://php.net/get/php-$PHP_VERSION.tar.xz/from/this/mirror" -o php.tar.xz \
-      && curl -SL "http://php.net/get/php-$PHP_VERSION.tar.xz.asc/from/this/mirror" -o php.tar.xz.asc \
-      && mkdir -p /usr/src/php \
-      && tar -xof php.tar.xz -C /usr/src/php --strip-components=1 \
-      && rm php.tar.xz* \
+#      && curl -SL "http://php.net/get/php-$PHP_VERSION.tar.xz/from/this/mirror" -o php.tar.xz \
+#      && curl -SL "http://php.net/get/php-$PHP_VERSION.tar.xz.asc/from/this/mirror" -o php.tar.xz.asc \
+#      && mkdir -p /usr/src/php \
+      && tar -xof php-5.3.29.tar.xz -C /usr/src/php --strip-components=1 \
+      && rm php-5.3.29.tar.xz* \
       && cd /usr/src/php \
       && ./configure \
             --with-config-file-path="$PHP_INI_DIR" \
