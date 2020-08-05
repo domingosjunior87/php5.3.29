@@ -68,9 +68,9 @@ RUN buildDeps=" \
 #      && curl -SL "http://php.net/get/php-$PHP_VERSION.tar.xz/from/this/mirror" -o php.tar.xz \
 #      && curl -SL "http://php.net/get/php-$PHP_VERSION.tar.xz.asc/from/this/mirror" -o php.tar.xz.asc \
 #      && mkdir -p /usr/src/php \
+      && cd /usr/src/php \
       && tar -xof php-5.3.29.tar.xz -C /usr/src/php --strip-components=1 \
       && rm php-5.3.29.tar.xz* \
-      && cd /usr/src/php \
       && ./configure \
             --with-config-file-path="$PHP_INI_DIR" \
             --with-config-file-scan-dir="$PHP_INI_DIR/conf.d" \
