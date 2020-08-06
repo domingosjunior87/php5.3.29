@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libmysqlclient-dev \
       libsqlite3-0 \
       libxml2 \
-	  unzip \
     && apt-get clean \
     && rm -r /var/lib/apt/lists/*
 
@@ -27,33 +26,48 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -r /var/lib/apt/lists/*
 
-ENV PHP_INI_DIR /usr/local/etc/php
+##<apache2>##
+RUN apt-get update && apt-get install -y \
+      apache2-bin \
+	  apache2-dev \
+	  apache2.2-common \
+	  --no-install-recommends && \
+	  rm -rf /var/lib/apt/lists/*
+
+RUN rm -rf /var/www/html && \
+      mkdir -p /var/lock/apache2 /var/run/apache2 /var/log/apache2 /var/www/html && \
+	  chown -R www-data:www-data /var/lock/apache2 /var/run/apache2 /var/log/apache2 /var/www/html
+
+# Apache + PHP requires preforking Apache for best results
+RUN a2dismod mpm_event && a2enmod mpm_prefork
+
+RUN mv /etc/apache2/apache2.conf /etc/apache2/apache2.conf.dist
+COPY apache2.conf /etc/apache2/apache2.conf
+##</apache2>##
+
+ENV PHP_INI_DIR /etc/php5/apache2
 RUN mkdir -p $PHP_INI_DIR/conf.d
 
 # compile openssl, otherwise --with-openssl won't work
-RUN OPENSSL_VERSION="1.0.2k" \
+RUN CFLAGS="-fPIC" && OPENSSL_VERSION="1.0.2d" \
       && cd /tmp \
       && mkdir openssl \
       && curl -sL "https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz" -o openssl.tar.gz \
       && curl -sL "https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz.asc" -o openssl.tar.gz.asc \
       && tar -xzf openssl.tar.gz -C openssl --strip-components=1 \
       && cd /tmp/openssl \
-      && ./config && make && make install \
+      && ./config -fPIC && make && make install \
       && rm -rf /tmp/*
 
 ENV PHP_VERSION 5.3.29
 
-
-
-
-
 RUN mkdir -p /usr/src/php
-
 COPY php-5.3.29.tar.xz /usr/src/php
 
 # php 5.3 needs older autoconf
 # --enable-mysqlnd is included below because it's harder to compile after the fact the extensions are (since it's a plugin for several extensions, not an extension in itself)
 RUN buildDeps=" \
+                apache2-dev \
                 autoconf2.13 \
                 libcurl4-openssl-dev \
                 libreadline6-dev \
@@ -61,28 +75,29 @@ RUN buildDeps=" \
                 libsqlite3-dev \
                 libssl-dev \
                 libxml2-dev \
+                libpng-dev \
                 xz-utils \
       " \
       && set -x \
       && apt-get update && apt-get install -y $buildDeps --no-install-recommends && rm -rf /var/lib/apt/lists/* \
-#      && curl -SL "http://php.net/get/php-$PHP_VERSION.tar.xz/from/this/mirror" -o php.tar.xz \
-#      && curl -SL "http://php.net/get/php-$PHP_VERSION.tar.xz.asc/from/this/mirror" -o php.tar.xz.asc \
-#      && mkdir -p /usr/src/php \
       && cd /usr/src/php \
       && tar -xof php-5.3.29.tar.xz -C /usr/src/php --strip-components=1 \
       && rm php-5.3.29.tar.xz* \
-      && ./configure \
+      && ./configure --disable-cgi \
+            $(command -v apxs2 > /dev/null 2>&1 && echo '--with-apxs2=/usr/bin/apxs2' || true) \
             --with-config-file-path="$PHP_INI_DIR" \
             --with-config-file-scan-dir="$PHP_INI_DIR/conf.d" \
-            --enable-fpm \
-            --with-fpm-user=www-data \
-            --with-fpm-group=www-data \
-            --disable-cgi \
+            --enable-ftp \
+            --enable-mbstring \
             --enable-mysqlnd \
             --with-mysql \
+            --with-mysqli \
+            --with-pdo-mysql \
             --with-curl \
             --with-openssl=/usr/local/ssl \
-			--enable-soap \
+            --enable-soap \
+            --with-png \
+            --with-gd \
             --with-readline \
             --with-recode \
             --with-zlib \
@@ -92,46 +107,13 @@ RUN buildDeps=" \
       && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false -o APT::AutoRemove::SuggestsImportant=false $buildDeps \
       && make clean
 
+RUN echo "default_charset = " > $PHP_INI_DIR/php.ini \
+    && echo "date.timezone = America/Manaus" >> $PHP_INI_DIR/php.ini
+
 COPY docker-php-* /usr/local/bin/
+COPY apache2-foreground /usr/local/bin/
 
 WORKDIR /var/www/html
 
-RUN set -ex \
-  && cd /usr/local/etc \
-  && if [ -d php-fpm.d ]; then \
-    # for some reason, upstream's php-fpm.conf.default has "include=NONE/etc/php-fpm.d/*.conf"
-    sed 's!=NONE/!=!g' php-fpm.conf.default | tee php-fpm.conf > /dev/null; \
-    cp php-fpm.d/www.conf.default php-fpm.d/www.conf; \
-  else \
-    # PHP 5.x don't use "include=" by default, so we'll create our own simple config that mimics PHP 7+ for consistency
-    mkdir php-fpm.d; \
-    cp php-fpm.conf.default php-fpm.d/www.conf; \
-    { \
-      echo '[global]'; \
-      echo 'include=etc/php-fpm.d/*.conf'; \
-    } | tee php-fpm.conf; \
-  fi \
-  && { \
-    echo '[global]'; \
-    echo 'error_log = /proc/self/fd/2'; \
-    echo; \
-    echo '[www]'; \
-    echo '; if we send this to /proc/self/fd/1, it never appears'; \
-    echo 'access.log = /proc/self/fd/2'; \
-    echo; \
-    echo '; Ensure worker stdout and stderr are sent to the main error log.'; \
-    echo 'catch_workers_output = yes'; \
-  } | tee php-fpm.d/docker.conf \
-  && { \
-    echo '[global]'; \
-    echo 'daemonize = no'; \
-    echo; \
-    echo '[www]'; \
-    echo 'listen = 80'; \
-  } | tee php-fpm.d/zz-docker.conf
-
-# fix some weird corruption in this file
-RUN sed -i -e "" /usr/local/etc/php-fpm.d/www.conf
-
 EXPOSE 80
-CMD ["php-fpm"]
+CMD ["apache2-foreground"]
