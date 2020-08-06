@@ -39,7 +39,7 @@ RUN rm -rf /var/www/html && \
 	  chown -R www-data:www-data /var/lock/apache2 /var/run/apache2 /var/log/apache2 /var/www/html
 
 # Apache + PHP requires preforking Apache for best results
-RUN a2dismod mpm_event && a2enmod mpm_prefork
+RUN a2dismod mpm_event && a2enmod mpm_prefork && a2enmod rewrite
 
 RUN mv /etc/apache2/apache2.conf /etc/apache2/apache2.conf.dist
 COPY apache2.conf /etc/apache2/apache2.conf
@@ -112,8 +112,11 @@ RUN echo "default_charset = " > $PHP_INI_DIR/php.ini \
 
 COPY docker-php-* /usr/local/bin/
 COPY apache2-foreground /usr/local/bin/
+RUN chmod a+x /usr/local/bin/apache2-foreground
 
 WORKDIR /var/www/html
 
 EXPOSE 80
-CMD ["apache2-foreground"]
+
+# CMD ["apache2-foreground"]
+CMD ["/usr/sbin/apache2ctl", "-D", "FOREGROUND"]
